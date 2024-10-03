@@ -26,6 +26,7 @@ const int servoEntrancePin = D7;
 const int servoExitPin = D8;
 
 // Variables
+int availableSlots = 4; // Starting available parking slots
 unsigned long entranceOpenTime = 0;
 unsigned long exitOpenTime = 0;
 bool entranceGateOpen = false;
@@ -33,16 +34,22 @@ bool exitGateOpen = false;
 
 // Function to open entrance gate
 void openEntranceGate() {
-    servoEntrance.write(150);              // Open entrance gate
-    entranceOpenTime = millis();          // Record entrance gate open time
-    entranceGateOpen = true;  
+    if (availableSlots > 0 && !entranceGateOpen) {
+        availableSlots--;                     // Decrease available slots
+        servoEntrance.write(90);              // Open entrance gate
+        entranceOpenTime = millis();          // Record entrance gate open time
+        entranceGateOpen = true;              // Mark entrance gate as open
+    }
 }
 
 // Function to open exit gate
 void openExitGate() {
-    servoExit.write(150);                  // Open exit gate
-    exitOpenTime = millis();              // Record exit gate open time
-    exitGateOpen = true;   
+    if (availableSlots < 4 && !exitGateOpen) { // Exit gate can only open if there are cars inside
+        availableSlots++;                     // Increase available slots
+        servoExit.write(90);                  // Open exit gate
+        exitOpenTime = millis();              // Record exit gate open time
+        exitGateOpen = true;                  // Mark exit gate as open
+    }
 }
 
 // Function to handle the entrance gate operation
@@ -55,7 +62,7 @@ void handleEntranceGate() {
     }
 
     // Close entrance gate after 5 seconds
-    if (entranceGateOpen && millis() - entranceOpenTime > 3000) {
+    if (entranceGateOpen && millis() - entranceOpenTime > 5000) {
         servoEntrance.write(0);               // Close entrance gate
         entranceGateOpen = false;             // Mark entrance gate as closed
     }
@@ -71,7 +78,7 @@ void handleExitGate() {
     }
 
     // Close exit gate after 5 seconds
-    if (exitGateOpen && millis() - exitOpenTime > 3000) {
+    if (exitGateOpen && millis() - exitOpenTime > 5000) {
         servoExit.write(0);                   // Close exit gate
         exitGateOpen = false;                 // Mark exit gate as closed
     }
@@ -84,9 +91,15 @@ void handleSensorAPI() {
     
     Serial.println("Sensor Index: " + String(sensorIndex)); // Debugging line
 
-    if (sensorIndex >= 0 && sensorIndex <= 4) {
+    if (sensorIndex >= 0 && sensorIndex < 4) {
         int sensorState = digitalRead(slotSensors[sensorIndex]);
         webServer.send(200, "text/plain", String(sensorState));
+    } else if (sensorIndex == 4) {
+        int entranceState = digitalRead(entranceSensor);
+        webServer.send(200, "text/plain", String(entranceState));
+    } else if (sensorIndex == 5) {
+        int exitState = digitalRead(exitSensor);
+        webServer.send(200, "text/plain", String(exitState));
     } else {
         webServer.send(404, "text/plain", "Sensor not found");
     }
@@ -114,7 +127,7 @@ void setup() {
     dnsServer.start(53, "*", apIP);
 
     // Setup web server routes dynamically
-    for (int i = 1; i <= 4; i++) {
+    for (int i = 1; i <= 6; i++) {
         webServer.on("/d" + String(i), handleSensorAPI);
     }
     webServer.on("/open/entrance", []() {
@@ -125,6 +138,10 @@ void setup() {
         openExitGate();
         webServer.send(200, "text/plain", "Exit gate opened");
     });
+    webServer.on("/open/slots", []() {
+        webServer.send(200, "text/plain", String(availableSlots));
+    });
+
     webServer.begin();
 }
 
